@@ -7,14 +7,12 @@ SelectionProofread is a Python script that allows you to proofread and improve s
 - Automatically copies the selected text.
 - Sends the text to OpenAI's API for proofreading and improvement.
 - Replaces the selected text with the improved version.
-- Currently only supports X11 window managers.
 
 ## Requirements
 
 - Python 3.6 or higher
 - `openai` Python library
 - `pyperclip` Python library
-- `xdotool` (for X11)
 - A valid OpenAI API key
 
 ## Installation
@@ -24,11 +22,10 @@ SelectionProofread is a Python script that allows you to proofread and improve s
     git clone https://github.com/yourusername/selectionproofread.git
     ```
 
-2. Install the required Python packages and ensure you have `xdotool` (for X11) installed:
-
+2. Install the required Python packages:
     - On Debian/Ubuntu:
     ```bash
-    sudo apt install python3-openai python3-pyperclip xdotool
+    sudo apt install python3-openai python3-pyperclip
     ```
 
 3. Create the configuration file and change permissions to secure your API Key:

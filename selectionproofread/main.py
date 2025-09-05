@@ -6,11 +6,13 @@ import json
 import pyperclip
 import logging
 import openai
-import subprocess
+from evdev import UInput, ecodes as e
 
+# Constants
 LOG_FILE = "/var/tmp/selectionproofread.log"
 CONFIG_PATH = os.path.expanduser("~/.config/selectionproofread/config.json")
 
+# Setup logging
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 logging.basicConfig(
     filename=LOG_FILE,
@@ -24,6 +26,7 @@ formatter = logging.Formatter('%(message)s')
 console.setFormatter(formatter)
 logging.getLogger().addHandler(console)
 
+# Exception handler
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -32,6 +35,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 sys.excepthook = handle_exception
 
+# Utility functions
 def load_config():
     """Load configuration from the config file."""
     if not os.path.exists(CONFIG_PATH):
@@ -44,25 +48,35 @@ def load_config():
         logging.error(f"Error parsing config file: {e}")
         sys.exit(1)
 
-def send_command(command):
-    """Send a command to the system."""
+def send_key_combination(key_combination):
+    """Send a key combination using UInput."""
     try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Command failed: {e}")
+        vk = UInput({e.EV_KEY: key_combination})
+        for key in key_combination:
+            vk.write(e.EV_KEY, key, 1)  # Press key
+        for key in reversed(key_combination):
+            vk.write(e.EV_KEY, key, 0)  # Release key
+        vk.syn()
+    finally:
+        vk.close()
+
+def call_openai_api(base_url, api_key, model, prompt):
+    """Call the OpenAI API with the given parameters."""
+    try:
+        client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content if response.choices else ""
+    except openai.error.OpenAIError as e:
+        logging.error(f"OpenAI API error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}", exc_info=True)
         sys.exit(1)
 
-def send_keystroke(keystroke):
-    """Send a keystroke using the appropriate tool based on the session type."""
-    session_type = os.environ.get('XDG_SESSION_TYPE', '').lower()
-    if session_type == 'wayland':
-        send_command(["ydotool", "key", "--repeat", "1", keystroke])
-    elif session_type == 'x11':
-        send_command(["xdotool", "key", "--repeat", "1", "--clearmodifiers", keystroke])
-    else:
-        logging.error("Unknown or unsupported window manager.")
-        sys.exit(1)
-
+# Main function
 def main():
     logging.info("=== SelectionProofread started ===")
 
@@ -79,29 +93,16 @@ def main():
         sys.exit(1)
 
     # Copy selected text
-    send_keystroke("ctrl+c")
+    send_key_combination([e.KEY_LEFTCTRL, e.KEY_C])
     selected_text = pyperclip.paste().strip()
     if not selected_text:
         logging.warning("No text selected.")
         sys.exit(0)
 
+    # Prepare prompt and call OpenAI API
     full_prompt = f"{prompt_template} (KEEP THE ORIGINAL LANGUAGE AND ONLY RETURN THE FINAL ANSWER!)\n\n{selected_text}"
     logging.info(f"Sending text to OpenAI API using model: {model}")
-
-    # Call OpenAI API
-    try:
-        client = openai.OpenAI(base_url=base_url, api_key=api_key)
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": full_prompt}]
-        )
-        result = response.choices[0].message.content if response.choices else ""
-    except openai.error.OpenAIError as e:
-        logging.error(f"OpenAI API error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}", exc_info=True)
-        sys.exit(1)
+    result = call_openai_api(base_url, api_key, model, full_prompt)
 
     if not result:
         logging.warning("No result from AI.")
@@ -110,7 +111,7 @@ def main():
     # Replace selected text with AI output
     logging.info("Replacing selected text with AI output...")
     pyperclip.copy(result)
-    send_keystroke("ctrl+v")
+    send_key_combination([e.KEY_LEFTCTRL, e.KEY_V])
     logging.info("Text replaced successfully")
 
 if __name__ == "__main__":
